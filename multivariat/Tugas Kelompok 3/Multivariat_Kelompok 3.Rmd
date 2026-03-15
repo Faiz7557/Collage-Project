@@ -1,0 +1,201 @@
+---
+title: "Multivariat TK3"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+# Load the libraries
+library(lavaan)
+library(semPlot)
+library(psych)
+library(ggplot2)
+library(readr)
+
+# Load the data (assuming data_3 is your dataset)
+data_3 <- read_csv("C:/Uner/Semester 5/Multivariat/Coolyeah/Tugas Kelompok 3/Wellbeing_and_lifestyle_data_Kaggle.csv")
+```
+
+```{r}
+# Periksa nama kolom dalam dataset
+colnames(data_3)
+
+```
+
+```{r}
+
+# Mengonversi variabel DAILY_STRESS ke numerik
+data_3$DAILY_STRESS <- as.numeric(data_3$DAILY_STRESS)
+
+data_3 <- na.omit(data_3)
+
+# Cek hasil konversi
+str(data_3$DAILY_STRESS)
+
+# Periksa struktur dataset
+str(data_3)
+
+```
+
+
+```{r}
+# Step 1: Select only numeric columns for analysis
+numeric_data <- data_3[, sapply(data_3, is.numeric)]
+
+# Step 2: Compute correlation matrix only with relevant numeric columns
+cor_matrix <- cor(numeric_data[, c("FRUITS_VEGGIES", "DAILY_STEPS", "BMI_RANGE", "SLEEP_HOURS", "LOST_VACATION", 
+                                    "CORE_CIRCLE", "SUPPORTING_OTHERS", "SOCIAL_NETWORK", "PLACES_VISITED", "DONATION", 
+                                    "DAILY_STRESS", "FLOW", "LIVE_VISION", "TIME_FOR_PASSION", "WEEKLY_MEDITATION", 
+                                    "WORK_LIFE_BALANCE_SCORE", "ACHIEVEMENT", "TODO_COMPLETED", "SUFFICIENT_INCOME", 
+                                    "PERSONAL_AWARDS")])
+
+# Step 3: Run EFA to determine the number of factors
+library(psych)
+efa_result <- fa(cor_matrix, nfactors = 5, rotate = "varimax", fm = "minres")
+print(efa_result)
+
+# Step 4: Visualize the factor loadings
+fa.diagram(efa_result)
+```
+
+```{r}
+# Define the CFA model
+cfa_model <- '
+  # Measurement model
+    # Kesehatan Fisik (ξ₁)
+    Kesehatan_Fisik =~ FRUITS_VEGGIES + DAILY_STEPS + BMI_RANGE + SLEEP_HOURS + LOST_VACATION
+    # Relasi Sosial (ξ₂)
+    Relasi_Sosial =~ CORE_CIRCLE + SUPPORTING_OTHERS + SOCIAL_NETWORK + PLACES_VISITED + DONATION
+    # Kesejahteraan Psikologis (ξ₃)
+    Kesejahteraan_Psikologis =~ DAILY_STRESS + FLOW + LIVE_VISION + TIME_FOR_PASSION + WEEKLY_MEDITATION
+    # Kesejahteraan Umum (η₁)
+    Kesejahteraan_Umum =~ WORK_LIFE_BALANCE_SCORE + ACHIEVEMENT + TODO_COMPLETED + SUFFICIENT_INCOME + PERSONAL_AWARDS
+'
+
+# Fit the CFA model
+fit_cfa <- cfa(cfa_model, data = numeric_data)
+
+# Step 2: Evaluate goodness of fit
+summary(fit_cfa, fit.measures = TRUE, standardized = TRUE)
+
+# Step 3: Visualize the CFA model using semPlot
+library(semPlot)
+semPaths(fit_cfa, whatLabels = "std", layout = "spring", edge.label.cex = 1.2, sizeMan = 10, sizeLat = 12)
+
+
+```
+
+
+```{r}
+# Define the SEM model
+sem_model <- '
+  # Measurement model
+    # Kesehatan Fisik (ξ₁)
+    Kesehatan_Fisik =~ FRUITS_VEGGIES + DAILY_STEPS + BMI_RANGE + SLEEP_HOURS + LOST_VACATION
+    # Relasi Sosial (ξ₂)
+    Relasi_Sosial =~ CORE_CIRCLE + SUPPORTING_OTHERS + SOCIAL_NETWORK + PLACES_VISITED + DONATION
+    # Kesejahteraan Psikologis (ξ₃)
+    Kesejahteraan_Psikologis =~ DAILY_STRESS + FLOW + LIVE_VISION + TIME_FOR_PASSION + WEEKLY_MEDITATION
+    # Kesejahteraan Umum (η₁)
+    Kesejahteraan_Umum =~ WORK_LIFE_BALANCE_SCORE + ACHIEVEMENT + TODO_COMPLETED + SUFFICIENT_INCOME + PERSONAL_AWARDS
+
+  # Structural model
+    Kesejahteraan_Umum ~ Kesehatan_Fisik + Relasi_Sosial + Kesejahteraan_Psikologis
+    Kesejahteraan_Psikologis ~ Relasi_Sosial + Kesehatan_Fisik
+    Kesehatan_Fisik ~ Relasi_Sosial
+'
+
+# Fit the SEM model
+fit_sem <- sem(sem_model, data = numeric_data)
+
+# Step 2: Evaluate goodness of fit
+summary(fit_sem, fit.measures = TRUE, standardized = TRUE)
+
+# Step 3: Visualize the SEM model
+semPaths(fit_sem, whatLabels = "std", layout = "spring", edge.label.cex = 1.2, sizeMan = 10, sizeLat = 12)
+
+```
+
+```{r}
+# Cek varians dari setiap variabel
+apply(numeric_data, 2, var)
+```
+```{r}
+# Matriks korelasi antar variabel
+cor(numeric_data)
+```
+
+
+```{r}
+# Fit the CFA model
+fit_cfa <- cfa(cfa_model, data = numeric_data)
+
+# Step 2: Display the summary of the CFA model with fit measures and standardized estimates
+summary(fit_cfa, fit.measures = TRUE, standardized = TRUE)
+
+```
+
+
+```{r}
+# Define the SEM model
+sem_model <- '
+  # Measurement model
+    # Kesehatan Fisik (ξ₁)
+    Kesehatan_Fisik =~ FRUITS_VEGGIES + DAILY_STEPS + BMI_RANGE + SLEEP_HOURS + LOST_VACATION
+    # Relasi Sosial (ξ₂)
+    Relasi_Sosial =~ CORE_CIRCLE + SUPPORTING_OTHERS + SOCIAL_NETWORK + PLACES_VISITED + DONATION
+    # Kesejahteraan Psikologis (ξ₃)
+    Kesejahteraan_Psikologis =~ DAILY_STRESS + FLOW + LIVE_VISION + TIME_FOR_PASSION + WEEKLY_MEDITATION
+    # Kesejahteraan Umum (η₁)
+    Kesejahteraan_Umum =~ WORK_LIFE_BALANCE_SCORE + ACHIEVEMENT + TODO_COMPLETED + SUFFICIENT_INCOME + PERSONAL_AWARDS
+
+  # Structural model
+    Kesejahteraan_Umum ~ Kesehatan_Fisik + Relasi_Sosial + Kesejahteraan_Psikologis
+    Kesejahteraan_Psikologis ~ Relasi_Sosial + Kesehatan_Fisik
+    Kesehatan_Fisik ~ Relasi_Sosial
+'
+
+# Fit the SEM model
+fit_sem <- sem(sem_model, data = numeric_data)
+
+# Step 2: Display the summary of the SEM model with fit measures, standardized estimates, and R-squared
+summary(fit_sem, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+
+```
+
+```{r}
+# Cek matriks korelasi antar variabel
+cor(numeric_data[, c("FRUITS_VEGGIES", "DAILY_STEPS", "BMI_RANGE", "SLEEP_HOURS", "LOST_VACATION", 
+                     "CORE_CIRCLE", "SUPPORTING_OTHERS", "SOCIAL_NETWORK", "PLACES_VISITED", "DONATION", 
+                     "DAILY_STRESS", "FLOW", "LIVE_VISION", "TIME_FOR_PASSION", "WEEKLY_MEDITATION", 
+                     "WORK_LIFE_BALANCE_SCORE", "ACHIEVEMENT", "TODO_COMPLETED", "SUFFICIENT_INCOME", 
+                     "PERSONAL_AWARDS")])
+
+```
+
+```{r}
+# Standardisasi data
+numeric_data_standardized <- scale(numeric_data)
+
+# Fit SEM model dengan data yang sudah distandarisasi
+fit_sem_standardized <- sem(sem_model, data = numeric_data_standardized)
+summary(fit_sem_standardized, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+
+```
+
+
+```{r}
+# Memeriksa matriks kovarians variabel laten
+lavInspect(fit_sem, "cov.lv")
+
+# Memeriksa pesan error lebih lanjut
+lavInspect(fit_sem, "est")
+
+```
+
+
+
+

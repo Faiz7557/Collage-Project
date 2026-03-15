@@ -1,0 +1,41 @@
+---
+title: "mulvar"
+author: "164221063_I Made Dharma Satya Mulyawan"
+date: "2024-09-10"
+output: html_document
+---
+
+```{r}
+# Install necessary packages if not already installed
+if(!require(Hotelling)) install.packages("Hotelling")
+
+# Load the required libraries
+library(Hotelling)
+
+# Path to the CSV file
+file_path <- 'C:/Users/Acer/Downloads/archive (5)/employee_survey.csv'
+
+# Read the CSV data
+employee_survey <- read.csv(file_path)
+
+# Filter data based on gender
+data_female <- subset(employee_survey, Gender == 'Female')
+data_male <- subset(employee_survey, Gender == 'Male')
+
+# Select only the columns for PhysicalActivityHours, SleepHours, and Experience
+data_female_values <- data_female[, c("PhysicalActivityHours", "SleepHours", "Experience")]
+data_male_values <- data_male[, c("PhysicalActivityHours", "SleepHours", "Experience")]
+
+# Convert the data to matrix format
+data_female_matrix <- as.matrix(data_female_values)
+data_male_matrix <- as.matrix(data_male_values)
+
+# Perform Hotelling's T² test
+result <- hotelling.test(data_female_matrix, data_male_matrix)
+
+# Print the result
+print(result)
+
+```
+
+

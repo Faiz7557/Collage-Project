@@ -1,0 +1,219 @@
+---
+title: "coba spasial"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# 1. Memuat pustaka yang diperlukan
+library(corrplot)
+library(RColorBrewer)
+library(readr)
+
+# 2. Membaca dataset
+# Pastikan file "happy.csv" berada di direktori kerja (working directory) Anda
+data <- read_csv("C:/Users/Faiz Iqbal/Downloads/happy.csv")
+
+# 3. Memilih kolom yang relevan
+# Perhatikan: R secara otomatis mengganti spasi dan karakter khusus di nama kolom dengan titik (.)
+# "Happiness Score" menjadi "Happiness.Score"
+# "Economy (GDP per Capita)" menjadi "Economy..GDP.per.Capita."
+# "Trust (Government Corruption)" menjadi "Trust..Government.Corruption."
+selected_columns <- data[, c("Happiness.Score", "Economy..GDP.per.Capita.", "Trust..Government.Corruption.")]
+
+# Mengganti nama kolom agar lebih mudah dibaca di plot
+colnames(selected_columns) <- c("Skor Kebahagiaan", "Ekonomi (PDB per Kapita)", "Kepercayaan pada Pemerintah")
+
+
+# 4. Menghitung matriks korelasi
+correlation_matrix <- cor(selected_columns)
+
+# 5. Membuat visualisasi heatmap korelasi
+# Menyiapkan judul untuk plot
+title <- "Heatmap Korelasi Faktor Kebahagiaan"
+
+# Membuat plot
+corrplot(correlation_matrix,
+         method = "color", # Menggunakan warna untuk merepresentasikan korelasi
+         col = brewer.pal(n = 8, name = "RdYlBu"), # Skema warna
+         type = "upper", # Hanya menampilkan bagian atas matriks
+         order = "hclust", # Mengelompokkan variabel yang mirip
+         addCoef.col = "black", # Menambahkan nilai koefisien korelasi
+         tl.col = "black", # Warna teks label
+         tl.srt = 45, # Rotasi teks label
+         diag = FALSE, # Menyembunyikan nilai di diagonal
+         title = title, # Menambahkan judul
+         mar = c(0, 0, 1, 0) # Menyesuaikan margin untuk judul
+)
+```
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)
+
+df <- read_csv("C:/Users/Faiz Iqbal/Downloads/happy.csv")
+
+data_corr <- df[, c("x1", "x2", "x3")]
+
+corr_matrix <- cor(data_corr, use = "complete.obs")
+
+corr_melt <- melt(corr_matrix)
+
+ggplot(data = corr_melt, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Correlation") +
+  theme_minimal() +
+  coord_fixed() +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) +
+  labs(title = "Heatmap Korelasi Variabel x1, x2, x3",
+       x = "", y = "")
+```
+
+
+```{r}
+library(readxl)
+data <- read_excel("C:/Uner/Semester 5/Multivariat/Coolyeah/Data_TM4.xlsx", col_names = FALSE)
+data = as.matrix(data)
+data
+kelas <- factor(c(rep("SD-A1", 20), rep("SD-A2", 20)))
+
+library(DescTools)
+HotellingsT2Test(data = kelas, test = "chi")
+
+```
+
+
+```{r}
+library(readxl)
+
+# Baca data Excel
+data <- read_excel("C:/Uner/Semester 5/Multivariat/Coolyeah/Data_TM4.xlsx")
+
+# Lihat struktur data
+str(data)
+head(data)
+
+# Misal 20 baris pertama = SD-A1, 20 baris berikutnya = SD-A2
+kelas <- factor(c(rep("SD-A1", 20), rep("SD-A2", 20)))
+
+kelas <- factor(data[[1]])   # ambil kolom pertama sebagai kelas
+data <- data[,-1]            # buang kolom label, sisakan variabel numerik
+
+library(Hotelling)
+
+# Uji Hotelling T2
+res <- hotelling.test(data ~ kelas)
+print(res)
+
+library(ICSNP)
+
+# Pisahkan data per kelompok
+X1 <- data[kelas == "SD-A1", ]
+X2 <- data[kelas == "SD-A2", ]
+
+# Uji Hotelling 2 sample
+HotellingsT2(X1, X2)
+
+```
+
+```{r}
+library(ICSNP)
+library(readxl)
+
+data <- read_excel("C:/Uner/Semester 5/Multivariat/Coolyeah/Data_TM4.xlsx")
+
+# Misal: kolom pertama = kelas
+kelas <- factor(data[[1]])
+X <- data[,-1]
+
+# Pisahkan data per grup
+X1 <- as.matrix(X[kelas == levels(kelas)[1], ])
+X2 <- as.matrix(X[kelas == levels(kelas)[2], ])
+
+# Uji Hotelling 2 sample
+res <- HotellingsT2(X1, X2)
+print(res)
+
+```
+
+
+
+```{r}
+library(ICSNP)
+library(readxl)
+library(MVN)       
+library(biotools) 
+
+data <- read_excel("C:/Uner/Semester 5/Multivariat/Coolyeah/Data_TM4.xlsx")
+
+X1 <- as.matrix(data[, c("UTS1", "UAS1")])
+X2 <- as.matrix(data[, c("UTS2", "UAS2")])
+
+HotellingsT2(X1, X2)
+```
+
+```{r}
+D <- as.matrix(data[, c("UTS1", "UAS1")] - data[, c("UTS2", "UAS2")])
+HotellingsT2(D, mu = c(0,0))
+
+```
+
+```{r}
+library(psych)
+
+# Mardia’s test dari psych
+mardia_test2 <- psych::mardia(data_all)
+print(mardia_test2)
+
+```
+
+
+```{r}
+group <- factor(c(rep("Group1", nrow(X1)), rep("Group2", nrow(X2))))
+
+box_test <- boxM(data_all, group)
+print(box_test)
+```
+
+
+```{r}
+# --- Normalitas Multivariat dengan Mahalanobis Distance ---
+X <- as.matrix(rbind(X1, X2))
+n <- nrow(X)
+p <- ncol(X)
+
+center <- colMeans(X)
+S <- cov(X)
+
+# Hitung Mahalanobis Distance^2
+md <- mahalanobis(X, center, S)
+
+# Urutkan
+md_sorted <- sort(md)
+
+# Kuantil teoritis dari Chi-square
+chi2_quantile <- qchisq(ppoints(n), df = p)
+
+# Plot Proporsi Square Distance
+plot(chi2_quantile, md_sorted,
+     main = "Q-Q Plot Mahalanobis Distance",
+     xlab = "Chi-square quantile",
+     ylab = "Ordered Mahalanobis D²")
+abline(0, 1, col = "red", lwd = 2)
+
+
+```
+
+```{r}
+install.packages("MVN")
+library(MVN)
+
+mvn(data = X, mvnTest = "hz")  # Henze-Zirkler test
+
+```
+

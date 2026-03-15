@@ -1,0 +1,162 @@
+---
+title: "Mutlivariat TM4_Kelompok 5"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+#-------------------------------------------------------------------------------
+# BAGIAN 1: PERSIAPAN & PEMBERSIHAN DATA
+#-------------------------------------------------------------------------------
+
+```{r}
+library(tidyverse)
+library(biotools) # Untuk Box's M Test
+library(car)      # Untuk fungsi MANOVA
+library(readr)
+
+# ----------------------------------------------------------------------------
+# LANGKAH 2: MEMUAT DATA ASLI
+# ----------------------------------------------------------------------------
+file_path <- "C:/Uner/Semester 5/Multivariat/Coolyeah/Tugas Kelompok 2/SuperMarket_Data_Terbaik_Untuk_MANOVA.csv"
+supermarket_data <- read.csv(file_path)
+
+# Mengubah variabel independen menjadi tipe 'factor'
+supermarket_data$City <- as.factor(supermarket_data$City)
+supermarket_data$Customer.type <- as.factor(supermarket_data$Customer.type)
+
+
+# ----------------------------------------------------------------------------
+# LANGKAH 3: TRANSFORMASI DATA
+# ----------------------------------------------------------------------------
+cat("\n--- MELAKUKAN TRANSFORMASI LOG PADA VARIABEL DEPENDEN ---\n")
+supermarket_data_transformed <- supermarket_data
+supermarket_data_transformed$Unit_price_processed <- log(supermarket_data_transformed$Unit_price_processed)
+supermarket_data_transformed$gross_income_processed <- log(supermarket_data_transformed$gross_income_processed)
+supermarket_data_transformed$Rating_processed <- log(supermarket_data_transformed$Rating_processed)
+cat("Transformasi data selesai.\n")
+
+
+# ----------------------------------------------------------------------------
+# LANGKAH 4: PENCARIAN SAMPEL NORMAL (PADA DATA TRANSFORMASI)
+# ----------------------------------------------------------------------------
+cat("\n--- MEMULAI PENCARIAN SAMPEL YANG MEMENUHI ASUMSI NORMALITAS ---\n")
+
+# --- a. Fungsi Cek Normalitas untuk Iterasi ---
+mardia_test_check <- function(data) {
+  n <- nrow(data); p <- ncol(data)
+  if (n < p) return(list(p_skew = 0, p_kurt = 0))
+  data_centered <- scale(data, center = TRUE, scale = FALSE)
+  cov_matrix <- cov(data)
+  if (rcond(cov_matrix) < .Machine$double.eps) return(list(p_skew = 0, p_kurt = 0))
+  inv_cov <- solve(cov_matrix)
+  d_squared <- mahalanobis(data, center = colMeans(data), cov = cov_matrix)
+  b1p <- sum(sapply(1:n, function(i) sapply(1:n, function(j) (t(data_centered[i,]) %*% inv_cov %*% data_centered[j,])^3))) / (n^2)
+  A <- n * b1p / 6
+  df_skew <- p * (p + 1) * (p + 2) / 6
+  p_skew <- pchisq(A, df_skew, lower.tail = FALSE)
+  b2p <- mean(d_squared^2)
+  B_sqrt <- (b2p - p * (p + 2)) / sqrt(8 * p * (p + 2) / n)
+  p_kurt <- 2 * pnorm(-abs(B_sqrt))
+  return(list(p_skew = p_skew, p_kurt = p_kurt))
+}
+
+# --- b. Iterasi Pencarian Sampel ---
+set.seed(42)
+max_attempts <- 2000
+sampel_ditemukan <- FALSE
+data_final_analisis <- NULL
+
+for (i in 1:max_attempts) {
+  cat(sprintf("\rPercobaan ke-%d...", i))
+  
+  supermarket_data_sampled <- supermarket_data_transformed %>%
+    group_by(City, Customer.type) %>%
+    sample_n(30) %>%
+    ungroup()
+  
+  dependent_vars_sampled <- supermarket_data_sampled[, c("Unit_price_processed", "gross_income_processed", "Rating_processed")]
+  interaction_group_sampled <- interaction(supermarket_data_sampled$City, supermarket_data_sampled$Customer.type, drop = TRUE)
+  data_by_group_sampled <- split(dependent_vars_sampled, interaction_group_sampled)
+  
+  semua_grup_normal <- TRUE
+  for (group_name in names(data_by_group_sampled)) {
+    test_result <- mardia_test_check(data_by_group_sampled[[group_name]])
+    if (test_result$p_skew < 0.05 || test_result$p_kurt < 0.05) {
+      semua_grup_normal <- FALSE
+      break
+    }
+  }
+  
+  if (semua_grup_normal) {
+    sampel_ditemukan <- TRUE
+    data_final_analisis <- supermarket_data_sampled
+    cat(sprintf("\n\nBERHASIL! Sampel yang memenuhi asumsi normalitas ditemukan pada percobaan ke-%d.\n", i))
+    break
+  }
+}
+
+if (!sampel_ditemukan) {
+  cat(sprintf("\n\nGAGAL. Sampel yang memenuhi asumsi normalitas tidak ditemukan setelah %d percobaan.\n", max_attempts))
+}
+
+
+# ----------------------------------------------------------------------------
+# LANGKAH 5: JIKA SAMPEL DITEMUKAN, LANJUTKAN ANALISIS
+# ----------------------------------------------------------------------------
+if (sampel_ditemukan) {
+  
+  # --- 5.1: SIMPAN DATASET SAMPEL YANG DITEMUKAN ---
+  write.csv(data_final_analisis, "sampel_normal_terpilih.csv", row.names = FALSE)
+  cat("\n--- Dataset sampel yang lolos uji normalitas telah disimpan sebagai 'sampel_normal_terpilih.csv' ---\n")
+  
+  # --- 5.2: VALIDASI UJI NORMALITAS MULTIVARIAT ---
+  cat("\n--- Memvalidasi Normalitas Multivariat pada Sampel Terpilih ---\n")
+  
+  # Fungsi untuk menampilkan hasil Mardia's Test dengan rapi
+  print_mardia_results <- function(data) {
+    results <- mardia_test_check(data)
+    cat("Hasil Mardia's Test:\n")
+    cat(sprintf("  Skewness: p-value = %.4f\n", results$p_skew))
+    cat(sprintf("  Kurtosis: p-value = %.4f\n", results$p_kurt))
+  }
+  
+  dependent_vars_final <- data_final_analisis[, c("Unit_price_processed", "gross_income_processed", "Rating_processed")]
+  interaction_group_final <- interaction(data_final_analisis$City, data_final_analisis$Customer.type, drop = TRUE)
+  data_by_group_final <- split(dependent_vars_final, interaction_group_final)
+  
+  for (group_name in names(data_by_group_final)) {
+    cat(paste("\n--- Menguji Grup:", group_name, "---\n"))
+    current_data <- data_by_group_final[[group_name]]
+    
+    # Q-Q Plot
+    d2 <- mahalanobis(current_data, center = colMeans(current_data), cov = cov(current_data))
+    chi_quantiles <- qchisq(ppoints(nrow(current_data)), df = ncol(current_data))
+    plot(chi_quantiles, sort(d2), main = paste("Q-Q Plot Final untuk Grup", group_name),
+         xlab = "Kuantil Teoritis Chi-Square", ylab = "Jarak Mahalanobis Kuadrat")
+    abline(a = 0, b = 1, col = "red")
+    
+    # Mardia's Test
+    print_mardia_results(current_data)
+  }
+  
+  # --- 5.3: UJI HOMOGENITAS (BOX'S M-TEST) ---
+  cat("\n\n--- UJI HOMOGENITAS (BOX'S M-TEST) PADA SAMPEL TERPILIH ---\n")
+  boxm_test_result <- biotools::boxM(data = dependent_vars_final, grouping = interaction_group_final)
+  print(boxm_test_result)
+  
+  # --- 5.4: PELAKSANAAN TWO-WAY MANOVA ---
+  dependent_matrix <- cbind(data_final_analisis$Unit_price_processed, data_final_analisis$gross_income_processed, data_final_analisis$Rating_processed)
+  colnames(dependent_matrix) <- c("UnitPrice", "GrossIncome", "Rating")
+  
+  manova_model <- manova(dependent_matrix ~ City * Customer.type, data = data_final_analisis)
+  
+  cat("\n\n--- HASIL FINAL TWO-WAY MANOVA (Pillai's Trace) ---\n")
+  summary_manova <- summary(manova_model, test = "Pillai")
+  print(summary_manova)
+}
+
+cat("\n--- AKHIR DARI SKRIP ---\n")
+```
+
+

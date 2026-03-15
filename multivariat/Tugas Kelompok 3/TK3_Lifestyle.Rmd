@@ -1,0 +1,446 @@
+---
+title: "Untitled"
+author: "Raafa Agna Rasyada"
+date: "2025-10-29"
+output: html_document
+---
+
+1. Analisis CFA, EFA, dan SEM
+```{r}
+library(tidyverse)
+library(psych)
+library(lavaan)
+library(dplyr)
+
+data_path <- "C:/Uner/Semester 5/Multivariat/Coolyeah/Tugas Kelompok 3/Wellbeing_and_lifestyle_data_Kaggle.csv"
+df <- readr::read_csv(data_path)
+
+vars <- c(
+  'FRUITS_VEGGIES','DAILY_STEPS','SLEEP_HOURS',
+  'CORE_CIRCLE','SOCIAL_NETWORK','PLACES_VISITED',  
+  'DAILY_STRESS','FLOW','WEEKLY_MEDITATION',
+  'WORK_LIFE_BALANCE_SCORE','ACHIEVEMENT','TODO_COMPLETED'
+)
+
+df_sub <- df %>% select(all_of(vars))
+
+for(v in names(df_sub)){
+  if(is.character(df_sub[[v]]) | is.factor(df_sub[[v]])){
+    df_sub[[v]] <- as.numeric(as.factor(df_sub[[v]]))
+  }
+}
+
+df_imputed <- df_sub
+for(v in names(df_imputed)){
+  if(any(is.na(df_imputed[[v]]))){
+    df_imputed[[v]][is.na(df_imputed[[v]])] <- mean(df_imputed[[v]], na.rm = TRUE)
+  }
+}
+
+df_scaled <- as.data.frame(scale(df_imputed))
+
+model_final <- '
+  kesehatan_fisik =~ FRUITS_VEGGIES + DAILY_STEPS + SLEEP_HOURS
+  koneksi_sosial =~ CORE_CIRCLE + SOCIAL_NETWORK + PLACES_VISITED  
+  kesehatan_mental =~ DAILY_STRESS + FLOW + WEEKLY_MEDITATION
+  work_life_balance =~ WORK_LIFE_BALANCE_SCORE + ACHIEVEMENT + TODO_COMPLETED
+  
+  work_life_balance ~ kesehatan_fisik + koneksi_sosial + kesehatan_mental
+  
+  FRUITS_VEGGIES ~~ DAILY_STEPS
+  CORE_CIRCLE ~~ SOCIAL_NETWORK
+  DAILY_STRESS ~~ FLOW
+  ACHIEVEMENT ~~ TODO_COMPLETED
+'
+
+fit_final <- lavaan::sem(
+  model_final, 
+  data = df_scaled, 
+  estimator = 'ML',
+  control = list(iter.max = 1000)
+)
+
+cat("===========================================\n")
+cat("         HASIL ANALISIS SEM LENGKAP        \n")
+cat("===========================================\n\n")
+
+if(lavInspect(fit_final, "converged")){
+  cat("✓ MODEL BERHASIL KONVERGEN\n\n")
+  cat("1. GOODNESS OF FIT:\n")
+  cat("-------------------\n")
+  fit_measures <- fitMeasures(fit_final, c('chisq','df','pvalue','cfi','tli','rmsea','srmr'))
+  print(fit_measures)
+  
+  cat("\nINTERPRETASI:\n")
+  cat("CFI    :", round(fit_measures['cfi'], 3), ifelse(fit_measures['cfi'] > 0.90, "✓ Excellent", "✗ Poor"), "\n")
+  cat("TLI    :", round(fit_measures['tli'], 3), ifelse(fit_measures['tli'] > 0.90, "✓ Excellent", ifelse(fit_measures['tli'] > 0.85, "✓ Acceptable", "✗ Poor")), "\n")
+  cat("RMSEA  :", round(fit_measures['rmsea'], 3), ifelse(fit_measures['rmsea'] < 0.08, "✓ Good", ifelse(fit_measures['rmsea'] < 0.10, "✓ Acceptable", "✗ Poor")), "\n")
+  cat("SRMR   :", round(fit_measures['srmr'], 3), ifelse(fit_measures['srmr'] < 0.08, "✓ Excellent", "✗ Poor"), "\n\n")
+  
+  cat("2. MEASUREMENT MODEL - LOADING FACTOR:\n")
+  cat("--------------------------------------\n")
+  loadings <- parameterEstimates(fit_final, standardized = TRUE) %>% 
+    filter(op == "=~") %>%
+    select(Construct = lhs, Indicator = rhs, Estimate = est, 
+           Std.Loading = std.all, p.value = pvalue) %>%
+    arrange(Construct, desc(Std.Loading))
+  
+  print(loadings, digits = 3)
+  
+  cat("\nINTERPRETASI LOADING:\n")
+  for(i in 1:nrow(loadings)){
+    loading_val <- loadings$Std.Loading[i]
+    status <- ifelse(loading_val > 0.7, "✓ Excellent", 
+                    ifelse(loading_val > 0.5, "✓ Acceptable", "✗ Poor"))
+    cat(sprintf("%-20s: %.3f %s\n", 
+                loadings$Indicator[i], loading_val, status))
+  }
+  cat("\n")
+  
+  cat("3. STRUCTURAL MODEL - PATH COEFFICIENTS:\n")
+  cat("----------------------------------------\n")
+  paths <- parameterEstimates(fit_final, standardized = TRUE) %>% 
+    filter(op == "~") %>%
+    select(Dependent = lhs, Independent = rhs, 
+           Coefficient = est, Std.Coefficient = std.all, 
+           p.value = pvalue)
+  
+  print(paths, digits = 3)
+  
+  cat("\nINTERPRETASI PATH:\n")
+  for(i in 1:nrow(paths)){
+    coef <- paths$Std.Coefficient[i]
+    sig <- ifelse(paths$p.value[i] < 0.05, "✓ Significant", "✗ Not Significant")
+    direction <- ifelse(coef > 0, "Positive", "Negative")
+    cat(sprintf("%s -> %s: %.3f (%s, %s)\n", 
+                paths$Independent[i], paths$Dependent[i], 
+                coef, direction, sig))
+  }
+  cat("\n")
+  cat("4. R-SQUARED (Variance Explained):\n")
+  cat("----------------------------------\n")
+  r2_values <- inspect(fit_final, 'r2')
+  r2_df <- data.frame(
+    Variable = names(r2_values),
+    R_Squared = round(r2_values, 3)
+  )
+  print(r2_df, row.names = FALSE)
+  
+  cat("\nINTERPRETASI R-SQUARED:\n")
+  wlb_r2 <- r2_values['work_life_balance']
+  cat(sprintf("Work-Life Balance variance explained: %.1f%%\n", wlb_r2 * 100))
+  cat(ifelse(wlb_r2 > 0.25, "✓ Substantial", 
+             ifelse(wlb_r2 > 0.10, "✓ Moderate", "✗ Weak")), "\n\n")
+  
+  cat("5. MODEL SUMMARY:\n")
+  cat("------------------\n")
+  cat("Konstruk Exogenous:\n")
+  cat("- Kesehatan Fisik: Makan buah/sayur, Langkah harian, Tidur\n")
+  cat("- Koneksi Sosial: Lingkaran sosial, Jaringan sosial, Tempat dikunjungi\n")
+  cat("- Kesehatan Mental: Stres harian, Flow, Meditasi mingguan\n\n")
+  
+  cat("Konstruk Endogenous:\n")
+  cat("- Work-Life Balance: Skor keseimbangan, Pencapaian, Tugas diselesaikan\n\n")
+  
+  cat("Hubungan Struktural:\n")
+  for(i in 1:nrow(paths)){
+    if(paths$p.value[i] < 0.05){
+      effect <- ifelse(abs(paths$Std.Coefficient[i]) > 0.3, "Strong",
+                      ifelse(abs(paths$Std.Coefficient[i]) > 0.1, "Moderate", "Weak"))
+      cat(sprintf("- %s memiliki pengaruh %s %s terhadap Work-Life Balance\n",
+                 paths$Independent[i], effect, 
+                 ifelse(paths$Std.Coefficient[i] > 0, "positif", "negatif")))
+    }
+  }
+  saveRDS(fit_final, file = 'sem_complete_result.rds')
+  cat("\n✓ Hasil lengkap disimpan sebagai 'sem_complete_result.rds'\n")
+  
+} else {
+  cat("✗ Model gagal konvergen\n")
+}
+
+cat("\n===========================================\n")
+cat("             ANALISIS SELESAI              \n")
+cat("===========================================\n")
+```
+
+2. Uji Reliabilitas dan Konvergenitas
+```{r}
+library(tidyverse)
+library(psych)
+library(lavaan)
+library(dplyr)
+
+data_path <- "C:/Uner/Semester 5/Multivariat/Coolyeah/Tugas Kelompok 3/Wellbeing_and_lifestyle_data_Kaggle.csv"
+df <- readr::read_csv(data_path)
+
+vars <- c(
+  'FRUITS_VEGGIES','DAILY_STEPS','SLEEP_HOURS',
+  'CORE_CIRCLE','SOCIAL_NETWORK','PLACES_VISITED',  
+  'DAILY_STRESS','FLOW','WEEKLY_MEDITATION',
+  'WORK_LIFE_BALANCE_SCORE','ACHIEVEMENT','TODO_COMPLETED'
+)
+
+df_sub <- df %>% select(all_of(vars))
+
+for(v in names(df_sub)){
+  if(is.character(df_sub[[v]]) | is.factor(df_sub[[v]])){
+    df_sub[[v]] <- as.numeric(as.factor(df_sub[[v]]))
+  }
+}
+
+df_imputed <- df_sub
+for(v in names(df_imputed)){
+  if(any(is.na(df_imputed[[v]]))){
+    df_imputed[[v]][is.na(df_imputed[[v]])] <- mean(df_imputed[[v]], na.rm = TRUE)
+  }
+}
+
+df_scaled <- as.data.frame(scale(df_imputed))
+
+model_final <- '
+  kesehatan_fisik =~ FRUITS_VEGGIES + DAILY_STEPS + SLEEP_HOURS
+  koneksi_sosial =~ CORE_CIRCLE + SOCIAL_NETWORK + PLACES_VISITED  
+  kesehatan_mental =~ DAILY_STRESS + FLOW + WEEKLY_MEDITATION
+  work_life_balance =~ WORK_LIFE_BALANCE_SCORE + ACHIEVEMENT + TODO_COMPLETED
+  
+  work_life_balance ~ kesehatan_fisik + koneksi_sosial + kesehatan_mental
+  
+  FRUITS_VEGGIES ~~ DAILY_STEPS
+  CORE_CIRCLE ~~ SOCIAL_NETWORK
+  DAILY_STRESS ~~ FLOW
+  ACHIEVEMENT ~~ TODO_COMPLETED
+'
+fit_final <- lavaan::sem(
+  model_final, 
+  data = df_scaled, 
+  estimator = 'ML',
+  control = list(iter.max = 1000)
+)
+
+cat("===========================================\n")
+cat("         HASIL ANALISIS SEM LENGKAP        \n")
+cat("===========================================\n\n")
+
+if(lavInspect(fit_final, "converged")){
+  cat("✓ MODEL BERHASIL KONVERGEN\n\n")
+  
+  cat("1. GOODNESS OF FIT:\n")
+  cat("-------------------\n")
+  fit_measures <- fitMeasures(fit_final, c('chisq','df','pvalue','cfi','tli','rmsea','srmr'))
+  print(fit_measures)
+  
+  cat("\nINTERPRETASI:\n")
+  cat("CFI    :", round(fit_measures['cfi'], 3), ifelse(fit_measures['cfi'] > 0.90, "✓ Excellent", "✗ Poor"), "\n")
+  cat("TLI    :", round(fit_measures['tli'], 3), ifelse(fit_measures['tli'] > 0.90, "✓ Excellent", ifelse(fit_measures['tli'] > 0.85, "✓ Acceptable", "✗ Poor")), "\n")
+  cat("RMSEA  :", round(fit_measures['rmsea'], 3), ifelse(fit_measures['rmsea'] < 0.08, "✓ Good", ifelse(fit_measures['rmsea'] < 0.10, "✓ Acceptable", "✗ Poor")), "\n")
+  cat("SRMR   :", round(fit_measures['srmr'], 3), ifelse(fit_measures['srmr'] < 0.08, "✓ Excellent", "✗ Poor"), "\n\n")
+  
+  cat("2. MEASUREMENT MODEL - LOADING FACTOR:\n")
+  cat("--------------------------------------\n")
+  loadings <- parameterEstimates(fit_final, standardized = TRUE) %>% 
+    filter(op == "=~") %>%
+    select(Construct = lhs, Indicator = rhs, Estimate = est, 
+           Std.Loading = std.all, p.value = pvalue) %>%
+    arrange(Construct, desc(Std.Loading))
+  
+  print(loadings, digits = 3)
+  
+  cat("\nINTERPRETASI LOADING:\n")
+  for(i in 1:nrow(loadings)){
+    loading_val <- loadings$Std.Loading[i]
+    status <- ifelse(loading_val > 0.7, "✓ Excellent", 
+                    ifelse(loading_val > 0.5, "✓ Acceptable", "✗ Poor"))
+    cat(sprintf("%-20s: %.3f %s\n", 
+                loadings$Indicator[i], loading_val, status))
+  }
+  cat("\n")
+  
+  cat("3. STRUCTURAL MODEL - PATH COEFFICIENTS:\n")
+  cat("----------------------------------------\n")
+  paths <- parameterEstimates(fit_final, standardized = TRUE) %>% 
+    filter(op == "~") %>%
+    select(Dependent = lhs, Independent = rhs, 
+           Coefficient = est, Std.Coefficient = std.all, 
+           p.value = pvalue)
+  
+  print(paths, digits = 3)
+  
+  cat("\nINTERPRETASI PATH:\n")
+  for(i in 1:nrow(paths)){
+    coef <- paths$Std.Coefficient[i]
+    sig <- ifelse(paths$p.value[i] < 0.05, "✓ Significant", "✗ Not Significant")
+    direction <- ifelse(coef > 0, "Positive", "Negative")
+    cat(sprintf("%s -> %s: %.3f (%s, %s)\n", 
+                paths$Independent[i], paths$Dependent[i], 
+                coef, direction, sig))
+  }
+  cat("\n")
+  
+  cat("4. R-SQUARED (Variance Explained):\n")
+  cat("----------------------------------\n")
+  r2_values <- inspect(fit_final, 'r2')
+  r2_df <- data.frame(
+    Variable = names(r2_values),
+    R_Squared = round(r2_values, 3)
+  )
+  print(r2_df, row.names = FALSE)
+  
+  cat("\nINTERPRETASI R-SQUARED:\n")
+  wlb_r2 <- r2_values['work_life_balance']
+  cat(sprintf("Work-Life Balance variance explained: %.1f%%\n", wlb_r2 * 100))
+  cat(ifelse(wlb_r2 > 0.25, "✓ Substantial", 
+             ifelse(wlb_r2 > 0.10, "✓ Moderate", "✗ Weak")), "\n\n")
+  
+  cat("5. MODEL SUMMARY:\n")
+  cat("------------------\n")
+  cat("Konstruk Exogenous:\n")
+  cat("- Kesehatan Fisik: Makan buah/sayur, Langkah harian, Tidur\n")
+  cat("- Koneksi Sosial: Lingkaran sosial, Jaringan sosial, Tempat dikunjungi\n")
+  cat("- Kesehatan Mental: Stres harian, Flow, Meditasi mingguan\n\n")
+  
+  cat("Konstruk Endogenous:\n")
+  cat("- Work-Life Balance: Skor keseimbangan, Pencapaian, Tugas diselesaikan\n\n")
+  
+  cat("Hubungan Struktural:\n")
+  for(i in 1:nrow(paths)){
+    if(paths$p.value[i] < 0.05){
+      effect <- ifelse(abs(paths$Std.Coefficient[i]) > 0.3, "Strong",
+                      ifelse(abs(paths$Std.Coefficient[i]) > 0.1, "Moderate", "Weak"))
+      cat(sprintf("- %s memiliki pengaruh %s %s terhadap Work-Life Balance\n",
+                 paths$Independent[i], effect, 
+                 ifelse(paths$Std.Coefficient[i] > 0, "positif", "negatif")))
+    }
+  }
+  cat("\n")
+  cat("6. RELIABILITY AND VALIDITY (CR and AVE):\n")
+  cat("-----------------------------------------\n")
+  std_loadings <- loadings %>%
+    mutate(lambda_sq = Std.Loading^2,
+           theta = 1 - lambda_sq) 
+  reliability_stats <- std_loadings %>%
+    group_by(Construct) %>%
+    summarise(
+      sum_lambda = sum(Std.Loading),
+      sum_lambda_sq = sum(lambda_sq),
+      sum_theta = sum(theta),
+      n_indicators = n()
+    ) %>%
+    mutate(
+      CR = (sum_lambda^2) / (sum_lambda^2 + sum_theta),
+      AVE = sum_lambda_sq / n_indicators
+    ) %>%
+    select(Construct, CR, AVE)
+  print(reliability_stats, digits = 3)
+
+  cat("\nINTERPRETASI RELIABILITAS & VALIDITAS KONVERGEN:\n")
+  cat("Rule of thumb: CR > 0.7 (Reliabel), AVE > 0.5 (Valid)\n\n")
+  
+  for(i in 1:nrow(reliability_stats)){
+    construct_name <- reliability_stats$Construct[i]
+    cr_val <- reliability_stats$CR[i]
+    ave_val <- reliability_stats$AVE[i]
+    
+    cr_status <- ifelse(cr_val > 0.7, "✓ Reliabel", 
+                       ifelse(cr_val > 0.6, "✓ Acceptable", "✗ Poor"))
+    ave_status <- ifelse(ave_val > 0.5, "✓ Valid", "✗ Invalid (Convergent Validity Issue)")
+    
+    cat(sprintf("Konstruk: %s\n", construct_name))
+    cat(sprintf("  - Composite Reliability (CR): %.3f (%s)\n", cr_val, cr_status))
+    cat(sprintf("  - Average Variance Extracted (AVE): %.3f (%s)\n", ave_val, ave_status))
+  }
+  cat("\n")
+
+  saveRDS(fit_final, file = 'sem_complete_result.rds')
+  cat("\n✓ Hasil lengkap disimpan sebagai 'sem_complete_result.rds'\n")
+  
+} else {
+  cat("✗ Model gagal konvergen\n")
+}
+
+cat("\n===========================================\n")
+cat("             ANALISIS SELESAI              \n")
+cat("===========================================\n")
+}}
+```
+
+3. Visualisasi CFA Path
+```{r}
+library(DiagrammeR)
+grViz("
+  digraph SEM {
+    graph [layout = dot, rankdir = LR, splines=true, bgcolor=transparent]
+
+    # Konstruk laten Eksogen (ξ₁, ξ₂, ξ₃)
+    node [shape=ellipse, style=filled, fontcolor=white, fontsize=13]
+    kesehatan_fisik [label='Kesehatan Fisik (ξ₁)', fillcolor='#1E88E5'];
+    relasi_sosial [label='Relasi Sosial (ξ₂)', fillcolor='#8E24AA'];
+    kesejahteraan_psikologis [label='Kesejahteraan Psikologis (ξ₃)', fillcolor='#FB8C00'];
+
+    # Konstruk laten Endogen (η₁)
+    node [shape=ellipse, style=filled, fontcolor=white, fontsize=13]
+    kesejahteraan_umum [label='Kesejahteraan Umum (η₁)', fillcolor='#43A047'];
+
+    # Indikator (variabel manifest)
+    node [shape=box, style=rounded, fillcolor=white, fontcolor=black, fontsize=10]
+    FRUITS_VEGGIES; DAILY_STEPS; BMI_RANGE; SLEEP_HOURS; LOST_VACATION;
+    CORE_CIRCLE; SUPPORTING_OTHERS; SOCIAL_NETWORK; PLACES_VISITED; DONATION;
+    DAILY_STRESS; FLOW; LIVE_VISION; TIME_FOR_PASSION; WEEKLY_MEDITATION;
+    WORK_LIFE_BALANCE_SCORE; ACHIEVEMENT; TODO_COMPLETED; SUFFICIENT_INCOME; PERSONAL_AWARDS;
+
+    # Loading indikator -> konstruk eksogen
+    FRUITS_VEGGIES -> kesehatan_fisik [label='λ=0.650'];
+    DAILY_STEPS -> kesehatan_fisik [label='λ=0.895'];
+    BMI_RANGE -> kesehatan_fisik [label='λ=0.849'];
+    SLEEP_HOURS -> kesehatan_fisik [label='λ=0.874'];
+    LOST_VACATION -> kesehatan_fisik [label='λ=0.819'];
+
+    CORE_CIRCLE -> relasi_sosial [label='λ=0.734'];
+    SUPPORTING_OTHERS -> relasi_sosial [label='λ=0.795'];
+    SOCIAL_NETWORK -> relasi_sosial [label='λ=0.858'];
+    PLACES_VISITED -> relasi_sosial [label='λ=0.838'];
+    DONATION -> relasi_sosial [label='λ=0.625'];
+
+    DAILY_STRESS -> kesejahteraan_psikologis [label='λ=0.928'];
+    FLOW -> kesejahteraan_psikologis [label='λ=0.863'];
+    LIVE_VISION -> kesejahteraan_psikologis [label='λ=0.874'];
+    TIME_FOR_PASSION -> kesejahteraan_psikologis [label='λ=0.874'];
+    WEEKLY_MEDITATION -> kesejahteraan_psikologis [label='λ=0.906'];
+
+    # Loading indikator -> konstruk endogen
+    WORK_LIFE_BALANCE_SCORE -> kesejahteraan_umum [label='λ=0.985'];
+    ACHIEVEMENT -> kesejahteraan_umum [label='λ=0.996'];
+    TODO_COMPLETED -> kesejahteraan_umum [label='λ=0.990'];
+    SUFFICIENT_INCOME -> kesejahteraan_umum [label='λ=0.995'];
+    PERSONAL_AWARDS -> kesejahteraan_umum [label='λ=0.763'];
+
+    # Hubungan antar konstruk (β)
+    kesehatan_fisik -> kesejahteraan_umum [label='β=0.068', color='#1E88E5', penwidth=2];
+    relasi_sosial -> kesejahteraan_umum [label='β=0.04', color='#8E24AA', penwidth=2];
+    kesejahteraan_psikologis -> kesejahteraan_umum [label='β=-0.066', color='#FB8C00', penwidth=2];
+
+    # Kovarian antar eksogen (r)
+    kesehatan_fisik -> relasi_sosial [dir=both, color=gray60, style=dashed, label='r=0.155'];
+    kesehatan_fisik -> kesejahteraan_psikologis [dir=both, color=gray60, style=dashed, label='r=0.463'];
+    relasi_sosial -> kesejahteraan_psikologis [dir=both, color=gray60, style=dashed, label='r=0.139'];
+
+    { rank = same; kesehatan_fisik; relasi_sosial; kesejahteraan_psikologis; }
+  }
+")
+```
+
+
+4. Visualisasi SemPath
+```{r}
+semPaths(fit, 
+         whatLabels = "est",  
+         layout = "spring",    
+         edge.label.cex = 0.8, 
+         edge.color = "gray",  
+         node.color = "lightblue", 
+         node.width = 2,       
+         fade = FALSE,         
+         residuals = TRUE,     
+         mar = c(6, 6, 6, 6)   
+)
+```

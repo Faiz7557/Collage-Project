@@ -1,0 +1,77 @@
+---
+title: "164231059_Faiz Iqbal I'tishom_Multivariat TM 9"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+setwd("C:/Uner/Semester 5/Multivariat/Coolyeah")
+
+wisc1 <- read.table("P2M9-wisc.txt", header = T)
+
+wisc2 <- wisc1[,2:12]
+```
+
+
+```{r}
+library(lavaan)
+
+# Memperbaiki model dan memisahkan verbal dan performance
+wisc.model1 <- "
+  verbal =~ info + comp + arith + simil + vocab + digit
+  performance =~ pictcomp + parang + block + object + coding
+"
+
+# Menyesuaikan dengan data wisc2
+fit1 <- lavaan::cfa(wisc.model1, data = wisc2, std.lv = TRUE)
+
+# Menampilkan hasil model
+summary(fit1, fit.measure = TRUE, standardized = TRUE)
+
+```
+
+
+```{r}
+library(semPlot)
+semPaths(fit1, residuals = F, sizeMan = 7,"std",
+         posCol = c("skyblue4", "red"),
+         #edge.color = "skyblue4",
+         edge.label.cex = 1.2, layout = "circle2")
+
+semPaths(fit1, "std")
+```
+
+
+```{r}
+library(semTools)
+compRelSEM(fit1)
+ave(fit1)
+```
+
+
+```{r}
+wisc.model2 <-"verbal =~ info + comp + arith + simil + vocab + digit 
+performance =~ pictcomp + parang + block + object + coding + comp"
+
+fit2 <- lavaan::cfa(wisc.model2, data = wisc2.std, lv = TRUE)
+summary(fit2, fit.measures = T, standardized = T)
+
+semPaths(fit2, residuals = F, sizeMan = 7, "std",
+         posCol = c("skyblue4", "red"),
+         #edgecolor = "skyblue4",
+         edge.label.cex = 1.2, layout = "circle2")
+
+semPaths(fit2, "std")
+```
+
+
+```{r}
+compRelSEM(fit2)
+AVE(fit2)
+```
+
+
+```{r}
+```
+

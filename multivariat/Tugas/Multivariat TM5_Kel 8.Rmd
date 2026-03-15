@@ -1,0 +1,209 @@
+---
+title: "Multivariat TM5_Kel 8"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+#-------------------------------------------------------------------------------
+ PERSIAPAN AWAL (MEMUAT LIBRARY & DATA)
+#-------------------------------------------------------------------------------
+
+Import Library yang dibutuhkan untuk visualisasi
+```{r}
+library(ggplot2) 
+library(dplyr)   
+library(tidyr)   
+library(GGally) 
+library(reshape2) 
+```
+
+Setup & Subset Data
+```{r}
+data_supermarket <- read_csv("C:/Uner/Semester 5/Multivariat/Coolyeah/Data_TM5.csv")
+
+colnames(data_supermarket) <- c("City", "Customer_type", "Unit_price", "Gross_income", "Rating")
+
+data_supermarket$Customer_type <- as.factor(data_supermarket$Customer_type)
+
+warna_member <- "#0077B6" 
+warna_normal <- "#FDB813" 
+```
+
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 1: BOXPLOT
+#-------------------------------------------------------------------------------
+
+```{r}
+data_supermarket %>%
+  pivot_longer(cols = c(Unit_price, Gross_income, Rating), names_to = "variabel", values_to = "nilai") %>%
+  ggplot(aes(x = Customer_type, y = nilai, fill = Customer_type)) +
+  geom_boxplot(alpha = 0.8, show.legend = FALSE) +
+  scale_fill_manual(values = c("Member" = warna_member, "Normal" = warna_normal)) +
+  labs(
+    title = "Distribusi Variabel Belanja per Tipe Pelanggan",
+    x = "Tipe Pelanggan",
+    y = "Nilai Variabel"
+  ) +
+  theme_minimal() +
+  facet_wrap(~ variabel, scales = "free_y") 
+```
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 2: SCATTER PLOT MATRIX
+#-------------------------------------------------------------------------------
+
+```{r}
+ggpairs(
+  data_supermarket,
+  columns = 3:5, 
+  aes(color = Customer_type, alpha = 0.7),
+  title = "Hubungan Antar Variabel Belanja Berdasarkan Tipe Pelanggan"
+) +
+  scale_color_manual(values = c("Member" = warna_member, "Normal" = warna_normal)) +
+  scale_fill_manual(values = c("Member" = warna_member, "Normal" = warna_normal)) +
+  theme_minimal()
+```
+
+#-------------------------------------------------------------------------------
+# VISUALISASI 3: HISTOGRAM & DENSITY PLOT
+#-------------------------------------------------------------------------------
+
+```{r}
+data_supermarket %>%
+  pivot_longer(cols = c(Unit_price, Gross_income, Rating), names_to = "variabel", values_to = "nilai") %>%
+  ggplot(aes(x = nilai, fill = Customer_type)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, alpha = 0.5, position = 'identity') +
+  geom_density(alpha = 0.6, show.legend = FALSE) +
+  scale_fill_manual(values = c("Member" = warna_member, "Normal" = warna_normal), name = "Tipe Pelanggan") +
+  facet_wrap(~ variabel, scales = "free") +
+  labs(
+    title = "Distribusi Variabel Belanja: Histogram & Density Plot",
+    subtitle = "Perbandingan antara Pelanggan Member dan Normal",
+    x = "Nilai Variabel",
+    y = "Kepadatan (Density)"
+  ) +
+  theme_minimal()
+```
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 4: HEATMAP KORELASI
+#-------------------------------------------------------------------------------
+
+```{r}
+cor_matrix <- cor(data_supermarket[, c("Unit_price", "Gross_income", "Rating")])
+
+melted_cor_matrix <- melt(cor_matrix)
+
+ggplot(data = melted_cor_matrix, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") + # Menambahkan garis tepi pada setiap kotak
+  scale_fill_gradient2(low = "#0077B6", high = "#FDB813", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), name = "Korelasi") +
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) + 
+  theme_minimal() +
+  labs(title = "Heatmap Korelasi Antar Variabel Belanja",
+       x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+```
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 5: BAR PLOT RATA-RATA RATING PER KOTA
+#-------------------------------------------------------------------------------
+
+```{r}
+rating_per_kota <- data_supermarket %>%
+  group_by(City, Customer_type) %>%
+  summarise(Average_Rating = mean(Rating), .groups = 'drop')
+
+ggplot(rating_per_kota, aes(x = City, y = Average_Rating, fill = Customer_type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  scale_fill_manual(values = c("Member" = warna_member, "Normal" = warna_normal), name = "Tipe Pelanggan") +
+  labs(title = "Perbandingan Rata-Rata Rating Pelanggan per Kota",
+       x = "Kota",
+       y = "Rata-Rata Rating") +
+  theme_minimal() +
+  geom_text(aes(label = round(Average_Rating, 2)), 
+            position = position_dodge(width = 0.9), 
+            vjust = -0.5, size = 3.5)
+```
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 6: SCATTER PLOT DENGAN GARIS REGRESI
+#-------------------------------------------------------------------------------
+
+```{r}
+ggplot(data_supermarket, aes(x = Gross_income, y = Rating, color = Customer_type)) +
+  geom_point(alpha = 0.4) + 
+  geom_smooth(method = "lm", se = FALSE) + 
+  scale_color_manual(values = c("Member" = warna_member, "Normal" = warna_normal), name = "Tipe Pelanggan") +
+  labs(
+    title = "Hubungan antara Pendapatan Kotor dan Rating Pelanggan",
+    subtitle = "Dengan Garis Tren per Tipe Pelanggan",
+    x = "Pendapatan Kotor (Gross Income)",
+    y = "Rating"
+  ) +
+  theme_minimal()
+```
+
+#-------------------------------------------------------------------------------
+# VISUALISASI 7: VIOLIN PLOT PENDAPATAN KOTOR
+#-------------------------------------------------------------------------------
+
+```{r}
+ggplot(data_supermarket, aes(x = Customer_type, y = Gross_income, fill = Customer_type)) +
+  geom_violin(trim = FALSE, alpha = 0.8, show.legend = FALSE) + 
+  geom_boxplot(width = 0.1, fill = "white") + 
+  facet_wrap(~ City) + 
+  scale_fill_manual(values = c("Member" = warna_member, "Normal" = warna_normal)) +
+  labs(
+    title = "Distribusi Pendapatan Kotor (Gross Income) per Kota",
+    subtitle = "Perbandingan antara Pelanggan Member dan Normal",
+    x = "Tipe Pelanggan",
+    y = "Pendapatan Kotor (Gross Income)"
+  ) +
+  theme_minimal()
+```
+
+#-------------------------------------------------------------------------------
+# VISUALISASI 8: TILE PLOT JUMLAH PELANGGAN
+#-------------------------------------------------------------------------------
+
+```{r}
+customer_counts <- data_supermarket %>%
+  group_by(City, Customer_type) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+ggplot(customer_counts, aes(x = City, y = Customer_type, fill = Count)) +
+  geom_tile(color = "white", lwd = 1.5) + # lwd untuk ketebalan garis
+  geom_text(aes(label = Count), color = "black", size = 5) +
+  scale_fill_gradient(low = "#E0F7FA", high = "#0077B6", name = "Jumlah Transaksi") +
+  labs(
+    title = "Komposisi Tipe Pelanggan di Setiap Kota",
+    x = "Kota",
+    y = "Tipe Pelanggan"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+```
+
+#-------------------------------------------------------------------------------
+  VISUALISASI 9: SCATTER PLOT BERASPEK (FACETED)
+#-------------------------------------------------------------------------------
+
+```{r}
+ggplot(data_supermarket, aes(x = Unit_price, y = Rating, color = Customer_type)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~ City) + 
+  scale_color_manual(values = c("Member" = warna_member, "Normal" = warna_normal), name = "Tipe Pelanggan") +
+  labs(
+    title = "Hubungan Harga Satuan dan Rating di Setiap Kota",
+    x = "Harga Satuan (Unit Price)",
+    y = "Rating"
+  ) +
+  theme_minimal()
+```
