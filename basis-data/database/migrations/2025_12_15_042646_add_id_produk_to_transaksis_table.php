@@ -1,0 +1,30 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        if (!Schema::hasColumn('transaksis', 'id_produk')) {
+        Schema::table('transaksis', function (Blueprint $table) {
+            $table->foreignId('id_produk')->nullable()->after('id_pembeli')->constrained('produk_beras', 'id_produk');
+        });
+        }
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('transaksis', function (Blueprint $table) {
+            //
+        });
+    }
+};
