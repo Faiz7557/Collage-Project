@@ -1,0 +1,646 @@
+---
+title: "UAS Spasial Kelompok 9"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+Import Library
+```{r}
+library(readxl)
+library(spdep)
+library(sf)
+library(sp) 
+library(mapview) 
+library(tibble) 
+library(lmtest) 
+library(car) 
+library(pscl) 
+library(GWmodel) 
+library(mgwrsar) 
+library(ggplot2) 
+library(spgwr)
+library(dplyr) 
+```
+
+Subset Data
+```{r}
+data_provinsi <- read_excel("C:/Uner/Semester 4/Analisis Data Spasial/Kuis, Tugas, UAS/Data Spasial_Kelompok 9.xlsx")
+data_provinsi
+```
+
+Statistika Deskriptif Dataset
+```{r}
+summary(data_provinsi)
+```
+
+Subset File SHP untuk Pemodelan Spasial yang akan dibuat (Menggunakan File SH)
+```{r}
+peta_indonesia <- st_read("C:/Uner/Semester 4/Analisis Data Spasial/UTS/gadm41_IDN_1.shp")
+```
+
+```{r}
+sf::sf_use_s2(FALSE)
+spatialreg::set.ZeroPolicyOption(TRUE) # This is good practice
+spdep::set.ZeroPolicyOption(TRUE) 
+```
+
+```{r}
+# Display initial data structures for verification
+print("--- Initial Data Provinsi Structure ---")
+print(head(data_provinsi))
+print(names(data_provinsi))
+print(unique(data_provinsi$PROVINSI)) # Check original province names
+```
+
+
+```{r}
+print("\n--- Initial Peta Indonesia Structure ---")
+print(head(peta_indonesia))
+print(names(peta_indonesia))
+print(unique(peta_indonesia$NAME_1)) # Check original province names in shapefile
+```
+
+
+```{r}
+# 1.2 Create Aggregate Variables from Columns 1-60
+# Based on your latest clarification, we'll sum ranges of columns for the variables.
+# ***CRITICAL ASSUMPTION:***
+# - Columns "1.0" to "12.0" contain monthly 'Jumlah Wisatawan Nusantara' data.
+# - Columns "13.0" to "24.0" contain monthly 'Jumlah Penumpang Pesawat' data.
+# - Columns "25.0" to "36.0" contain monthly 'Pengeluaran Industri' data.
+# --- Adjust the column ranges (e.g., seq(1,12)) if your data structure differs. ---
+
+data_provinsi$jumlah_wisatawan_nusantara <- rowSums(data_provinsi[, paste0(seq(1, 12), ".0")], na.rm = TRUE)
+data_provinsi$jumlah_penumpang_pesawat <- rowSums(data_provinsi[, paste0(seq(13, 24), ".0")], na.rm = TRUE)
+data_provinsi$pengeluaran_industri <- rowSums(data_provinsi[, paste0(seq(25, 36), ".0")], na.rm = TRUE)
+```
+
+
+```{r}
+# Define the variable names to be used in models (consistent and easy to reference)
+Y_VAR <- "jumlah_wisatawan_nusantara"
+X_VAR1 <- "jumlah_penumpang_pesawat"
+X_VAR2 <- "pengeluaran_industri"
+```
+
+
+```{r}
+# Cleaning for data_provinsi$PROVINSI
+data_provinsi$PROVINSI_Cleaned <- toupper(data_provinsi$PROVINSI)
+data_provinsi$PROVINSI_Cleaned <- gsub("PROVINSI ", "", data_provinsi$PROVINSI_Cleaned)
+data_provinsi$PROVINSI_Cleaned <- gsub("DAERAH KHUSUS IBUKOTA ", "", data_provinsi$PROVINSI_Cleaned)
+data_provinsi$PROVINSI_Cleaned <- gsub("NANGGROE ACEH DARUSSALAM", "ACEH", data_provinsi$PROVINSI_Cleaned)
+data_provinsi$PROVINSI_Cleaned <- gsub("DI YOGYAKARTA", "YOGYAKARTA", data_provinsi$PROVINSI_Cleaned)
+data_provinsi$PROVINSI_Cleaned <- gsub("DKI JAKARTA", "JAKARTA", data_provinsi$PROVINSI_Cleaned) # Common variant
+```
+
+
+```{r}
+# Cleaning for peta_indonesia$NAME_1
+peta_indonesia$NAME_1_Cleaned <- toupper(peta_indonesia$NAME_1)
+peta_indonesia$NAME_1_Cleaned <- gsub("JAKARTA RAYA", "JAKARTA", peta_indonesia$NAME_1_Cleaned) # Common variant
+peta_indonesia$NAME_1_Cleaned <- gsub("BANGKA BELITUNG", "KEP. BANGKA BELITUNG", peta_indonesia$NAME_1_Cleaned)
+peta_indonesia$NAME_1_Cleaned <- gsub("KEPULAUAN RIAU", "KEP. RIAU", peta_indonesia$NAME_1_Cleaned)
+peta_indonesia$NAME_1_Cleaned <- gsub("DAERAH ISTIMEWA YOGYAKARTA", "YOGYAKARTA", peta_indonesia$NAME_1_Cleaned) # Another variant
+```
+
+
+```{r}
+# Display cleaned names to manually check for any remaining discrepancies
+print("\n--- Cleaned Province Names (Data Provinsi) ---")
+print(sort(unique(data_provinsi$PROVINSI_Cleaned)))
+print("\n--- Cleaned Province Names (Peta Indonesia) ---")
+print(sort(unique(peta_indonesia$NAME_1_Cleaned)))
+```
+
+```{r}
+spatial_data <- left_join(peta_indonesia,
+                          data_provinsi %>% select(PROVINSI_Cleaned, !!sym(Y_VAR), !!sym(X_VAR1), !!sym(X_VAR2)),
+                          by = c("NAME_1_Cleaned" = "PROVINSI_Cleaned"))
+```
+
+
+```{r}
+# Check for NAs in the dependent variable after merge (indicates unmatched provinces)
+print("\n--- Provinces in shapefile that did NOT find a match in data_provinsi ---")
+print(spatial_data[is.na(spatial_data[[Y_VAR]]), "NAME_1_Cleaned"])
+print(paste("Initial number of provinces in shapefile:", nrow(peta_indonesia)))
+print(paste("Number of rows in merged spatial_data:", nrow(spatial_data)))
+```
+
+
+```{r}
+# 1.5 Handle Missing Values and Ensure Valid Geometry
+# Remove rows where any of the key variables are NA (important for modeling)
+
+# Get the attribute data as a regular data.frame (without the geometry column)
+spatial_data_attributes <- sf::st_drop_geometry(spatial_data)
+
+# Filter the *original* spatial_data based on complete cases in the attributes
+# This ensures you keep the geometry for the filtered rows
+spatial_data_filtered <- spatial_data[complete.cases(spatial_data_attributes[, c(Y_VAR, X_VAR1, X_VAR2)]), ]
+
+print(paste("\nNumber of provinces after filtering NAs for modeling:", nrow(spatial_data_filtered)))
+
+# Pastikan data spasial valid setelah filtering (penting untuk operasi spasial)
+spatial_data_filtered <- st_make_valid(spatial_data_filtered)
+
+# 1.6 Convert to 'sp' object for compatibility with some spatial packages
+# Banyak fungsi GWR-related di 'spgwr' dan 'GWmodel' masih utamanya menggunakan objek 'sp'.
+spatial_data_sp_filtered <- as(spatial_data_filtered, "Spatial")
+```
+
+2. EDA
+```{r}
+# --- 2. Exploratory Data Analysis (EDA) ---
+print("\n--- 2. Exploratory Data Analysis (EDA) ---")
+
+# 2.1 Summary Statistics
+print(paste("\nSummary Statistics for", Y_VAR, ":"))
+summary(spatial_data_filtered[[Y_VAR]])
+print(paste("\nSummary Statistics for", X_VAR1, ":"))
+summary(spatial_data_filtered[[X_VAR1]])
+print(paste("\nSummary Statistics for", X_VAR2, ":"))
+summary(spatial_data_filtered[[X_VAR2]])
+```
+
+```{r}
+# 2.2 Histograms to check distributions
+# Note: aes_string is used because variable names are in string format
+ggplot(spatial_data_filtered, aes_string(x = Y_VAR)) +
+  geom_histogram(fill = "steelblue", color = "black", bins = 30) +
+  ggtitle(paste("Distribution of", Y_VAR)) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(spatial_data_filtered, aes_string(x = X_VAR1)) +
+  geom_histogram(fill = "darkgreen", color = "black", bins = 30) +
+  ggtitle(paste("Distribution of", X_VAR1)) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(spatial_data_filtered, aes_string(x = X_VAR2)) +
+  geom_histogram(fill = "orange", color = "black", bins = 30) +
+  ggtitle(paste("Distribution of", X_VAR2)) +
+  theme_minimal()
+```
+
+```{r}
+# 2.3 Scatter Plots to visualize relationships
+ggplot(spatial_data_filtered, aes_string(x = X_VAR1, y = Y_VAR)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  ggtitle(paste(Y_VAR, "vs.", X_VAR1)) +
+  labs(x = X_VAR1, y = Y_VAR) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(spatial_data_filtered, aes_string(x = X_VAR2, y = Y_VAR)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle(paste(Y_VAR, "vs.", X_VAR2)) +
+  labs(x = X_VAR2, y = Y_VAR) +
+  theme_minimal()
+```
+
+```{r}
+# --- 3. Thematic Mapping to Identify Spatial Patterns ---
+print("\n--- 3. Thematic Mapping ---")
+
+# Interactive maps with mapview
+#mapview(spatial_data_filtered, zcol = Y_VAR,
+        #layer.name = paste("Jumlah Wisatawan Nusantara"))
+```
+
+```{r}
+#mapview(spatial_data_filtered, zcol = X_VAR1,
+        #layer.name = paste("Jumlah Penumpang Pesawat"))
+```
+
+
+```{r}
+# Static maps with ggplot2
+ggplot(spatial_data_filtered) +
+  geom_sf(aes_string(fill = Y_VAR)) +
+  scale_fill_viridis_c(option = "plasma", direction = -1, name = "Value") +
+  labs(title = paste("Spatial Distribution of", Y_VAR, "per Province")) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+ggplot(spatial_data_filtered) +
+  geom_sf(aes_string(fill = X_VAR1)) +
+  scale_fill_viridis_c(option = "magma", direction = -1, name = "Value") +
+  labs(title = paste("Spatial Distribution of", X_VAR1, "per Province")) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+ggplot(spatial_data_filtered) +
+  geom_sf(aes_string(fill = X_VAR2)) +
+  scale_fill_viridis_c(option = "cividis", direction = -1, name = "Value") +
+  labs(title = paste("Spatial Distribution of", X_VAR2, "per Province")) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# --- 4. Spatial Autocorrelation Analysis (Moran's I) ---
+# To identify if there are clusters or spatial patterns (Objective 1)
+print("\n--- 4. Spatial Autocorrelation Analysis (Moran's I) ---")
+
+# 4.1 Create a Spatial Weights Matrix (Queen contiguity is common for polygons)
+# Defines who is a "neighbor" to whom.
+lw <- poly2nb(spatial_data_sp_filtered, queen = TRUE)
+r_lw <- nb2listw(lw, style = "W", zero.policy = TRUE) # Row-standardized weights
+```
+
+
+```{r}
+# 4.2 Global Moran's I Test
+# Tests for overall spatial autocorrelation (clustering or dispersion)
+moran_y_var <- moran.test(spatial_data_sp_filtered[[Y_VAR]], r_lw, zero.policy = TRUE)
+print(paste("\nGlobal Moran's I for", Y_VAR, ":"))
+print(moran_y_var)
+```
+
+
+```{r}
+moran_x1_var <- moran.test(spatial_data_sp_filtered[[X_VAR1]], r_lw, zero.policy = TRUE)
+print(paste("\nGlobal Moran's I for", X_VAR1, ":"))
+print(moran_x1_var)
+```
+
+
+```{r}
+moran_x2_var <- moran.test(spatial_data_sp_filtered[[X_VAR2]], r_lw, zero.policy = TRUE)
+print(paste("\nGlobal Moran's I for", X_VAR2, ":"))
+print(moran_x2_var)
+```
+
+```{r}
+# 4.3 Local Moran's I (LISA) for Cluster Identification
+# Helps identify specific high-high, low-low, high-low, low-high clusters.
+lisa_y_var <- localmoran(spatial_data_sp_filtered[[Y_VAR]], r_lw, zero.policy = TRUE)
+# Add LISA results to the spatial data for mapping
+spatial_data_filtered$lisa_i_y <- lisa_y_var[,1] # Local Moran's I statistic
+spatial_data_filtered$lisa_p_y <- lisa_y_var[,5] # P-value for local Moran's I
+```
+
+
+```{r}
+# Classify LISA results for a thematic map (simplified for significance at p < 0.05)
+spatial_data_filtered$lisa_cluster_y <- "Not Significant"
+spatial_data_filtered$lisa_cluster_y[spatial_data_filtered$lisa_p_y < 0.05 & spatial_data_filtered$lisa_i_y > 0] <- "High-High" # Hotspot
+spatial_data_filtered$lisa_cluster_y[spatial_data_filtered$lisa_p_y < 0.05 & spatial_data_filtered$lisa_i_y < 0] <- "Low-Low"   # Coldspot
+# You can add High-Low and Low-High outliers if needed for more detailed analysis:
+# spatial_data_filtered$lisa_cluster_y[spatial_data_filtered$lisa_p_y < 0.05 & spatial_data_filtered$lisa_i_y < 0 & spatial_data_filtered[[Y_VAR]] > mean(spatial_data_filtered[[Y_VAR]], na.rm = TRUE)] <- "High-Low Outlier"
+# spatial_data_filtered$lisa_cluster_y[spatial_data_filtered$lisa_p_y < 0.05 & spatial_data_filtered$lisa_i_y > 0 & spatial_data_filtered[[Y_VAR]] < mean(spatial_data_filtered[[Y_VAR]], na.rm = TRUE)] <- "Low-High Outlier"
+```
+
+
+```{r}
+# Map LISA clusters
+#mapview(spatial_data_filtered, zcol = "lisa_cluster_y",
+        #layer.name = paste("LISA Clusters for", Y_VAR),
+        #na.color = "grey") # Grey for not significant/missing data
+```
+
+
+5. Spatial Regression Models
+```{r}
+print("\n--- 5. Spatial Regression Models ---")
+
+# Get coordinates of polygon centroids for GWR models
+coords <- st_coordinates(st_centroid(spatial_data_filtered))
+colnames(coords) <- c("X", "Y") # Rename columns for clarity
+```
+
+```{r}
+# Construct the regression formula dynamically
+model_formula <- as.formula(paste(Y_VAR, "~", X_VAR1, "+", X_VAR2))
+```
+
+
+```{r}
+# 5.1 Global OLS Regression (Baseline for comparison)
+print("\n--- 5.1 Global OLS Regression Results ---")
+ols_model <- lm(model_formula, data = spatial_data_filtered)
+summary(ols_model)
+# Check for spatial autocorrelation in OLS residuals
+print("\nMoran's I test on OLS residuals:")
+lm.morantest(ols_model, r_lw, zero.policy = TRUE)
+# If Moran's I on residuals is significant, a spatial model is more appropriate.
+```
+
+```{r}
+# 5.2 Geographically Weighted Regression (GWR)
+# Suitable for continuous dependent variables.
+print("\n--- 5.2 Geographically Weighted Regression (GWR) ---")
+
+# Determine optimal bandwidth using AICc criterion (can be computationally intensive)
+# 'adapt = TRUE' means bandwidth is defined by a number of nearest neighbors, not fixed distance.
+gwr_bandwidth_aic <- gwr.sel(model_formula,
+                             data = spatial_data_sp_filtered,
+                             coords = coords,
+                             adapt = TRUE,
+                             gweight = gwr.Gauss, # Gaussian kernel
+                             method = "AICc")
+print(paste("Optimal GWR bandwidth (adaptive, AICc):", round(gwr_bandwidth_aic, 2), "neighbors"))
+```
+
+```{r}
+# Run GWR with the optimal bandwidth
+gwr_model <- gwr(model_formula,
+                 data = spatial_data_sp_filtered,
+                 coords = coords,
+                 adapt = gwr_bandwidth_aic,
+                 gweight = gwr.Gauss,
+                 se.fit = TRUE, # Calculate standard errors for coefficients
+                 hatmatrix = TRUE) # Needed for local R-squared and diagnostics
+
+# Print GWR results summary (includes R-squared, bandwidth, and some diagnostics)
+print(gwr_model)
+```
+
+```{r}
+# Extract and map the local coefficients and local R-squared
+gwr_model_results <- as.data.frame(gwr_model$SDF)
+spatial_data_filtered$gwr_intercept <- gwr_model_results$X.Intercept.
+spatial_data_filtered$gwr_coef_x1 <- gwr_model_results[[X_VAR1]]
+spatial_data_filtered$gwr_coef_x2 <- gwr_model_results[[X_VAR2]]
+spatial_data_filtered$gwr_local_r2 <- gwr_model_results$local.R2
+```
+
+```{r}
+
+print("\n--- Summary of Initial GWR (Adaptive Gaussian) ---")
+print(gwr_model)
+
+# Untuk membandingkan model, kita akan melihat nilai AICc dari setiap model.
+# Semakin rendah nilai AICc, semakin baik modelnya.
+model_comparison <- data.frame(
+  Model = "GWR (Adaptive Gaussian)",
+  Bandwidth = gwr_bandwidth_aic,
+  AICc = gwr_model$results$AICc
+)
+```
+
+```{r}
+# --- 5.3.1 GWR dengan Fixed Gaussian Kernel ---
+print("\n--- 5.3.1 GWR with Fixed Gaussian Kernel ---")
+
+# Temukan bandwidth optimal untuk kernel Gaussian tetap (fixed)
+bw_fixed_gauss <- gwr.sel(model_formula,
+                          data = spatial_data_sp_filtered,
+                          coords = coords,
+                          adapt = FALSE, # adapt=FALSE untuk bandwidth tetap (fixed)
+                          gweight = gwr.Gauss)
+
+print(paste("Optimal GWR bandwidth (Fixed, Gaussian):", round(bw_fixed_gauss, 4)))
+
+# Jalankan model GWR dengan bandwidth tetap (fixed)
+gwr_model_fixed_gauss <- gwr(model_formula,
+                             data = spatial_data_sp_filtered,
+                             coords = coords,
+                             bandwidth = bw_fixed_gauss, # Menggunakan bandwidth fixed
+                             gweight = gwr.Gauss,
+                             hatmatrix = TRUE)
+
+print(gwr_model_fixed_gauss)
+
+# Tambahkan ke tabel perbandingan
+model_comparison <- rbind(model_comparison, 
+                          data.frame(Model = "GWR (Fixed Gaussian)", 
+                                     Bandwidth = bw_fixed_gauss, 
+                                     AICc = gwr_model_fixed_gauss$results$AICc))
+```
+
+
+```{r}
+# --- 5.3.2 GWR dengan Adaptive Bisquare Kernel ---
+print("\n--- 5.3.2 GWR with Adaptive Bisquare Kernel ---")
+
+# Temukan bandwidth optimal untuk kernel Bisquare adaptif
+bw_adapt_bisq <- gwr.sel(model_formula,
+                         data = spatial_data_sp_filtered,
+                         coords = coords,
+                         adapt = TRUE,
+                         gweight = gwr.bisquare) # Menggunakan kernel Bisquare
+
+print(paste("Optimal GWR bandwidth (Adaptive, Bisquare):", round(bw_adapt_bisq, 2), "neighbors"))
+
+# Jalankan model GWR
+gwr_model_adapt_bisq <- gwr(model_formula,
+                            data = spatial_data_sp_filtered,
+                            coords = coords,
+                            adapt = bw_adapt_bisq,
+                            gweight = gwr.bisquare,
+                            hatmatrix = TRUE)
+
+print(gwr_model_adapt_bisq)
+
+# Tambahkan ke tabel perbandingan
+model_comparison <- rbind(model_comparison, 
+                          data.frame(Model = "GWR (Adaptive Bisquare)", 
+                                     Bandwidth = bw_adapt_bisq, 
+                                     AICc = gwr_model_adapt_bisq$results$AICc))
+```
+
+
+```{r}
+# --- 5.3.3 GWR dengan Fixed Bisquare Kernel ---
+print("\n--- 5.3.3 GWR with Fixed Bisquare Kernel ---")
+
+# Temukan bandwidth optimal untuk kernel Bisquare tetap
+bw_fixed_bisq <- gwr.sel(model_formula,
+                         data = spatial_data_sp_filtered,
+                         coords = coords,
+                         adapt = FALSE,
+                         gweight = gwr.bisquare)
+
+print(paste("Optimal GWR bandwidth (Fixed, Bisquare):", round(bw_fixed_bisq, 4)))
+
+# Jalankan model GWR
+gwr_model_fixed_bisq <- gwr(model_formula,
+                            data = spatial_data_sp_filtered,
+                            coords = coords,
+                            bandwidth = bw_fixed_bisq,
+                            gweight = gwr.bisquare,
+                            hatmatrix = TRUE)
+
+print(gwr_model_fixed_bisq)
+
+# Tambahkan ke tabel perbandingan
+model_comparison <- rbind(model_comparison, 
+                          data.frame(Model = "GWR (Fixed Bisquare)", 
+                                     Bandwidth = bw_fixed_bisq, 
+                                     AICc = gwr_model_fixed_bisq$results$AICc))
+```
+
+
+```{r}
+# --- 5.4 Perbandingan Model GWR ---
+print(model_comparison[order(model_comparison$AICc), ])
+```
+
+
+```{r}
+# --- 6.1 Membuat Variabel Biner untuk GWLR (Tidak ada perubahan) ---
+print("\n--- 6. Creating Binary Variable for GWLR ---")
+median_y <- median(spatial_data_filtered[[Y_VAR]], na.rm = TRUE)
+Y_VAR_BINER <- "wisatawan_diatas_median"
+spatial_data_filtered[[Y_VAR_BINER]] <- ifelse(spatial_data_filtered[[Y_VAR]] > median_y, 1, 0)
+spatial_data_sp_filtered[[Y_VAR_BINER]] <- spatial_data_filtered[[Y_VAR_BINER]]
+gwlr_formula <- as.formula(paste(Y_VAR_BINER, "~", X_VAR1, "+", X_VAR2))
+print("GWLR Formula:")
+print(gwlr_formula)
+```
+
+
+```{r}
+# --- Menghitung Matriks Jarak (dMat) (Tidak ada perubahan) ---
+print("\n--- Calculating Distance Matrix (dMat) ---")
+dMat <- gw.dist(dp.locat = coords)
+```
+
+
+```{r}
+# --- 6.2 Menjalankan Model GWLR dengan Berbagai Bandwidth (KODE DIPERBAIKI) ---
+
+# --- 6.2.1 GWLR dengan Adaptive Gaussian Kernel ---
+print("\n--- 6.2.1 GWLR with Adaptive Gaussian Kernel ---")
+bw_gwlr_adapt_gauss <- bw.ggwr(gwlr_formula, 
+                               data = spatial_data_sp_filtered, 
+                               family = "binomial",
+                               kernel = "gaussian", 
+                               adaptive = TRUE,
+                               dMat = dMat) 
+print(paste("Optimal GWLR bandwidth (Adaptive, Gaussian):", bw_gwlr_adapt_gauss, "neighbors"))
+
+# PERBAIKAN: Hapus argumen kernel, adaptive, dan dMat dari ggwr
+gwlr_adapt_gauss <- ggwr(gwlr_formula, 
+                         data = spatial_data_sp_filtered, 
+                         family = "binomial", 
+                         bandwidth = bw_gwlr_adapt_gauss)
+print(gwlr_adapt_gauss)
+```
+
+
+```{r}
+# --- 6.2.2 GWLR dengan Fixed Gaussian Kernel ---
+print("\n--- 6.2.2 GWLR with Fixed Gaussian Kernel ---")
+bw_gwlr_fixed_gauss <- bw.ggwr(gwlr_formula, 
+                               data = spatial_data_sp_filtered, 
+                               family = "binomial",
+                               kernel = "gaussian", 
+                               adaptive = FALSE,
+                               dMat = dMat)
+print(paste("Optimal GWLR bandwidth (Fixed, Gaussian):", bw_gwlr_fixed_gauss))
+
+# PERBAIKAN: Hapus argumen kernel, adaptive, dan dMat dari ggwr
+gwlr_fixed_gauss <- ggwr(gwlr_formula, 
+                         data = spatial_data_sp_filtered, 
+                         family = "binomial", 
+                         bandwidth = bw_gwlr_fixed_gauss)
+print(gwlr_fixed_gauss)
+```
+
+
+```{r}
+# --- 6.2.3 GWLR dengan Adaptive Bisquare Kernel ---
+print("\n--- 6.2.3 GWLR with Adaptive Bisquare Kernel ---")
+bw_gwlr_adapt_bisq <- bw.ggwr(gwlr_formula, 
+                              data = spatial_data_sp_filtered, 
+                              family = "binomial",
+                              kernel = "bisquare", 
+                              adaptive = TRUE,
+                              dMat = dMat)
+print(paste("Optimal GWLR bandwidth (Adaptive, Bisquare):", bw_gwlr_adapt_bisq, "neighbors"))
+
+# PERBAIKAN: Hapus argumen kernel, adaptive, dan dMat dari ggwr
+gwlr_adapt_bisq <- ggwr(gwlr_formula, 
+                        data = spatial_data_sp_filtered, 
+                        family = "binomial", 
+                        bandwidth = bw_gwlr_adapt_bisq)
+print(gwlr_adapt_bisq)
+```
+
+
+```{r}
+# --- 6.2.4 GWLR dengan Fixed Bisquare Kernel ---
+print("\n--- 6.2.4 GWLR with Fixed Bisquare Kernel ---")
+bw_gwlr_fixed_bisq <- bw.ggwr(gwlr_formula, 
+                              data = spatial_data_sp_filtered, 
+                              family = "binomial",
+                              kernel = "bisquare", 
+                              adaptive = FALSE,
+                              dMat = dMat)
+print(paste("Optimal GWLR bandwidth (Fixed, Bisquare):", bw_gwlr_fixed_bisq))
+
+# PERBAIKAN: Hapus argumen kernel, adaptive, dan dMat dari ggwr
+gwlr_fixed_bisq <- ggwr(gwlr_formula, 
+                        data = spatial_data_sp_filtered, 
+                        family = "binomial", 
+                        bandwidth = bw_gwlr_fixed_bisq)
+print(gwlr_fixed_bisq)
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+

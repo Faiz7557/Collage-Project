@@ -1,0 +1,326 @@
+---
+title: "UTS Komstat"
+author: "Faiz Iqbal I'tishom"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+Persiapan Data
+```{r}
+library(readxl)
+data <- read_excel("C:/Uner/Semester 4/Analisis Data Spasial/UTS/data spasial.xlsx")
+data
+```
+
+```{r}
+library(dplyr)
+library(tmap)
+library(raster)
+```
+
+```{r}
+library(sf)
+spIndo = st_read("C:/Uner/Semester 4/Analisis Data Spasial/UTS/gadm41_IDN_1.shp")
+names(spIndo)
+```
+
+```{r}
+tm_shape(spIndo) + tm_polygons()
+```
+
+```{r}
+# Ambil subset data dengan nama kolom asli
+data_subset <- data.frame(
+  `PDB` = data$PDB,
+  `Laju PDB` = data$`Laju PDB`,
+  `Upah rata-rata` = data$`Upah rata-rata`,
+  `Rasio NEET` = data$`Rasio NEET`
+)
+
+# Hitung matriks korelasi
+cor_matrix <- cor(data_subset, use = "complete.obs")
+
+# Install & load jika belum ada
+if (!require("corrplot")) install.packages("corrplot")
+library(corrplot)
+
+# Simpan label dari nama kolom
+label_kolom <- colnames(data_subset)
+
+# Plot heatmap korelasi dengan label asli
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         addCoef.col = "black", # Menambahkan nilai korelasi
+         tl.col = "black",
+         tl.srt = 45,
+         tl.cex = 1,
+         number.cex = 0.8,
+         tl.labels = label_kolom)  # Ganti label default
+```
+
+```{r}
+# Install & load jika belum ada
+if (!require("GGally")) install.packages("GGally")
+library(GGally)
+
+# Scatter plot antar semua variabel
+ggpairs(data_subset,
+        upper = list(continuous = wrap("cor", size = 3)),
+        lower = list(continuous = wrap("points", alpha = 0.7, size = 1)),
+        diag = list(continuous = wrap("densityDiag")),
+        title = "Scatter Plot Matrix - Variabel PDB dan Prediktor")
+```
+Interpretasi:
+
+Struktur Visualisasi
+Diagonal: Menampilkan distribusi (density plot) dari masing-masing variabel.
+Bawah diagonal: Scatter plot antara dua variabel.
+Atas diagonal: Koefisien korelasi Pearson dan signifikansinya.
+
+Interpretasi Korelasi:
+
+1. Y vs x1 (PDB vs Laju PDB)
+Korelasi: -0.017 → sangat lemah (hampir tidak ada hubungan linear).
+Interpretasi: Laju pertumbuhan PDB tidak berkorelasi secara linear dengan nilai PDB itu sendiri.
+Visual: Sebaran titik-titik acak tanpa pola linear.
+
+2. Y vs x2 (PDB vs Upah rata-rata)
+Korelasi: 0.714*** → kuat dan signifikan (p < 0.001).
+Interpretasi: Ketika rata-rata upah naik, PDB cenderung naik juga. Ini masuk akal karena upah merupakan refleksi dari aktivitas ekonomi dan produktivitas.
+Visual: Pola sebaran menunjukkan kecenderungan positif yang cukup jelas.
+
+3. Y vs x3 (PDB vs Rasio NEET)
+Korelasi: -0.253 → korelasi negatif lemah hingga sedang, tidak signifikan.
+Interpretasi: PDB cenderung menurun saat rasio NEET meningkat, meskipun tidak cukup kuat secara statistik.
+Visual: Sedikit indikasi penurunan, tetapi banyak sebaran acak.
+
+4. x1 vs x2 (Laju PDB vs Upah rata-rata)
+Korelasi: -0.009 → tidak ada hubungan linear.
+Interpretasi: Perubahan laju PDB tidak memengaruhi besar upah rata-rata secara langsung.
+
+5. x1 vs x3 (Laju PDB vs Rasio NEET)
+Korelasi: 0.211 → korelasi lemah positif, tidak signifikan.
+Interpretasi: Mungkin ada kecenderungan bahwa daerah dengan laju PDB tinggi juga memiliki sedikit peningkatan NEET, tapi tidak cukup kuat.
+
+6. x2 vs x3 (Upah rata-rata vs Rasio NEET)
+Korelasi: -0.034 → tidak ada hubungan.
+Interpretasi: Tingkat upah tidak berkorelasi dengan jumlah anak muda yang tidak sekolah, bekerja, atau pelatihan (NEET).
+
+Kesimpulan Utama
+a. Upah rata-rata (x2) adalah prediktor paling relevan untuk PDB (Y) karena hubungan kuat dan signifikan.
+b. Variabel Laju PDB (x1) dan Rasio NEET (x3) tidak menunjukkan hubungan linear yang kuat terhadap PDB.
+c. Tidak ada multikolinearitas serius antara prediktor (semua korelasi antar prediktor sangat rendah).
+
+
+Definisikan matriks pembobot
+```{r}
+library(spdep)
+library(spatialreg)
+
+queen.nb = poly2nb(spIndo)
+queen.listw <- nb2listw(queen.nb, zero.policy= TRUE)
+queen.indo = queen.listw
+
+rock.nb = poly2nb(spIndo)
+rock.listw = nb2listw(rock.nb, zero.policy = TRUE)
+rock.indo = rock.listw
+```
+
+cek yang gak punya tetangga
+```{r}
+which(card(queen.nb) == 0)
+which(card(rock.nb) == 0)
+```
+```{r}
+spIndo$NAME_1[which(card(queen.nb) == 0)]
+spIndo$NAME_1[which(card(rock.nb) == 0)]
+```
+
+```{r}
+bobot.queen = listw2mat(queen.listw)
+bobot.queen = listw2mat(queen.listw)
+```
+
+Peta Tematik
+```{r}
+spIndo$Y = data$PDB
+spIndo$x1 = data$`Laju PDB`
+spIndo$x2 = data$`Upah rata-rata`
+spIndo$x3 = data$`Rasio NEET`
+```
+
+```{r}
+spIndo <- st_transform(spIndo, crs = 3395)
+#win.graph()
+tm_shape(spIndo) + tm_polygons(col="Y", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+#win.graph()
+tm_shape(spIndo) + tm_polygons(col="x1", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+#win.graph()
+tm_shape(spIndo) + tm_polygons(col="x2", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+#win.graph()
+tm_shape(spIndo) + tm_polygons(col="x3", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+#win.graph()
+```
+
+```{r}
+p1 <- tm_shape(spIndo) + tm_polygons("Y", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+p2 <- tm_shape(spIndo) + tm_polygons("x1", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+p3 <- tm_shape(spIndo) + tm_polygons("x2", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+p4 <- tm_shape(spIndo) + tm_polygons("x3", style = "cont", fill.scale = tm_scale_continuous(midpoint = NA))
+
+tmap_arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+
+```{r}
+tmap_mode("plot")
+(p1 + p2 + p3 + p4)
+```
+
+Moran & LM Test
+```{r}
+moran.test(spIndo$Y, queen.indo, randomisation = FALSE)
+```
+
+Komponen	Penjelasan
+
+Moran I = 0.5111	Ini adalah nilai indeks autokorelasi spasial. Nilainya berkisar dari -1 (negatif sempurna) sampai +1 (positif sempurna). Di sini nilainya positif dan cukup besar, menandakan klastering positif.
+
+Standard deviate = 3.0274	Ini adalah nilai Z (nilai baku) untuk pengujian hipotesis nol bahwa tidak ada autokorelasi spasial.
+
+p-value = 0.001233	Ini sangat kecil (di bawah 0.05), berarti uji ini signifikan secara statistik. Artinya, kita menolak hipotesis nol dan menerima bahwa autokorelasi spasial memang ada.
+
+```{r}
+moran.plot(spIndo$Y, queen.indo)
+```
+
+Plot ini memvisualisasikan hubungan antara nilai variabel dan rata-rata spasial dari tetangganya.
+
+Titik-titik di kuadran kanan atas dan kiri bawah menandakan kluster yang kuat (positif-positif dan negatif-negatif).
+
+Kuadran lainnya menunjukkan outlier spasial (misalnya daerah dengan nilai tinggi tapi dikelilingi nilai rendah).
+
+Kesimpulan visual: Terdapat sejumlah outlier (seperti titik 24, 23, dan 11), namun secara umum terdapat pola klastering spasial yang nyata.
+
+
+Regresi Linier
+```{r}
+y = data$PDB
+x1 = data$`Laju PDB`
+x2 = data$`Upah rata-rata`
+x3 = data$`Rasio NEET`
+model_lm <- lm(y~x1+x2+x3, data = data)
+summary(model_lm)
+```
+
+```{r}
+LM = lm.RStests(model_lm,queen.indo, test = "all") #Ganti dari LMtests ke RStests
+summary(LM)
+```
+
+RSerr (Residual error):	2.17, p-value =	0.1406	Tidak signifikan, tidak mendukung adanya ketergantungan spasial dalam residual.
+
+RSlag (Spatial lag):	5.02, p-value =	0.02508*	Signifikan (*), mengindikasikan adanya efek lag spasial. Ini artinya nilai 
+
+variabel dependen di suatu area dipengaruhi oleh area tetangganya.
+
+adjRSerr:	0.0569, p-value =	0.81196	Tidak signifikan
+
+adjRSlag:	2.90, p-value =	0.08841	Hampir signifikan ('.'), bisa dipertimbangkan.
+
+SARMA:	5.07, p-value =	0.07907	Marginal, menunjukkan sedikit indikasi adanya model SARMA (kombinasi lag dan error).
+
+
+Preprocessing Tambahan
+```{r}
+library(spdep)
+
+# 1. Hitung jumlah tetangga
+neighbor_count <- sapply(queen.indo$neighbours, length)
+
+# 2. Buat indeks wilayah valid (tidak NA dan punya tetangga)
+valid_index <- !is.na(spIndo$Y) & neighbor_count > 0
+
+# 3. Subset data spasial dan listw dengan sinkron
+spIndo_clean <- spIndo[valid_index, ]
+queen.indo_clean <- subset(queen.indo, subset = valid_index)
+
+# 4. Verifikasi panjang sama
+print(nrow(spIndo_clean))               
+print(length(queen.indo_clean$neighbours))   
+```
+
+Model SAR (Spatial Autoregressive)
+```{r}
+model_sar <- lagsarlm(Y ~ x1 + x2 + x3, data = spIndo_clean, listw = queen.indo_clean, zero.policy = TRUE)
+summary(model_sar)
+```
+
+(Intercept): -45.39506	
+Interpretasi: PDB saat semua variabel = 0	
+Signifikansi Tidak signifikan (p = 0.2646)
+
+x1 (Laju PDB): 0.66322	
+Interpretasi: Setiap 1% kenaikan laju PDB meningkatkan PDB sebesar 0.66 unit, ceteris paribus	
+Signifikansi: Tidak signifikan (p = 0.6997)
+
+x2 (Upah rata-rata): 8.42924	
+Interpretasi: Setiap kenaikan upah sebesar 1 unit meningkatkan PDB sebesar 8.43 unit, ceteris paribus	
+Signifikansi: Sangat signifikan (p < 0.001)
+
+x3 (Rasio NEET): -2.31132	
+Interpretasi: Setiap peningkatan 1% NEET menurunkan PDB sebesar 2.31 unit	
+Signifikansi: Marginal signifikan (p = 0.0797)
+
+Koefisien Rho (ρ):
+ρ = 0.30995, p = 0.0154 → signifikan
+
+Artinya: Ada pengaruh spasial signifikan dari PDB tetangga terhadap PDB suatu wilayah. Semakin tinggi PDB wilayah tetangga, semakin tinggi pula PDB wilayah tersebut.
+
+Kualitas Model:
+Log Likelihood = -170.16
+AIC = 352.32
+Residual Variance (σ²) = 1247.5
+LM test residual autocorrelation = Tidak signifikan → residu tidak lagi mengandung autokorelasi
+
+Model SEM (Spatial Error Model)
+```{r}
+model_sem <- errorsarlm(Y ~ x1 + x2 + x3, data = spIndo_clean, listw = queen.indo_clean, zero.policy = TRUE)
+summary(model_sem)
+```
+
+Intercept):	-41.30048	
+Interpretasi: PDB saat semua variabel = 0	
+Signifikansi: Tidak signifikan (p = 0.3552)
+
+x1 (Laju PDB): 0.39617	
+Interpretasi: Setiap kenaikan 1% laju PDB menaikkan PDB sebesar 0.39 unit	
+Signifikansi: Tidak signifikan (p = 0.8264)
+
+x2 (Upah rata-rata): 9.07923	
+Interpretasi: Setiap kenaikan 1 unit upah menaikkan PDB sebesar 9.08 unit	
+Signifikansi: Sangat signifikan (p < 0.001)
+
+x3 (Rasio NEET): -2.10681	
+Interpretasi: Setiap kenaikan 1% NEET menurunkan PDB sebesar 2.11 unit	
+Signifikansi: Tidak signifikan (p = 0.1453)
+
+Koefisien Lambda (λ):
+λ = 0.33537, p = 0.0863 → Marginal signifikan
+Artinya: Ada struktur spasial dalam error model, meskipun tidak sekuat SAR.
+
+Kualitas Model:
+Log Likelihood = -171.63
+AIC = 355.25 (lebih tinggi dari SAR)
+Residual Variance (σ²) = 1349 → lebih tinggi dari SAR)
+
+Pemilihan Model Terbaik
+```{r}
+AIC(model_lm)
+AIC(model_sar)
+AIC(model_sem)
+```
+
